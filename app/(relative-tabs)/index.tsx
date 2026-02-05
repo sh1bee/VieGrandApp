@@ -1,22 +1,17 @@
-// app/(tabs)/index.tsx
+// app/(relative-tabs)/index.tsx
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import * as Notifications from "expo-notifications"; // 4. Thêm import Notifications
 import { useRouter } from "expo-router";
-import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
   doc,
   getDoc,
   onSnapshot,
-  orderBy,
-  query, // 1. Thêm orderBy
-  Timestamp,
-  updateDoc,
+  query,
   where,
-} from "firebase/firestore";
+} from "firebase/firestore"; // Bỏ onSnapshot ở đây để tránh xung đột
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -24,8 +19,6 @@ import {
   Dimensions,
   Image,
   ImageBackground,
-  Linking,
-  Platform, // 3. Đã có Platform ở đây
   ScrollView,
   StyleSheet,
   Text,
@@ -37,7 +30,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 // Import các tài nguyên và dịch vụ
 import FamilyConnectModal from "../../src/components/FamilyConnectModal";
 import { auth, db } from "../../src/config/firebase";
-import { NotificationService } from "../../src/services/NotificationService"; // 5. Thêm import Service
 import {
   getWeather,
   getWeatherIcon,
@@ -46,8 +38,9 @@ import {
 
 const { width } = Dimensions.get("window");
 
+// Assets
 const bgImage = require("../../assets/images/home_bg.png");
-const avatarUrl = "https://i.pravatar.cc/150?img=11";
+const avatarUrl = "https://i.pravatar.cc/150?img=60";
 
 const weatherImages: any = {
   cloudy: require("../../assets/images/weather_cloudy.png"),
@@ -62,215 +55,183 @@ const getDayLabel = (dateString: string, index: number) => {
   return days[date.getDay()];
 };
 
-const FeatureButton = ({
-  icon,
-  label,
-  iconColor,
-  isEmergency,
-  onPress,
-}: any) => (
-  <TouchableOpacity
-    style={styles.featureItem}
-    onPress={onPress}
-    activeOpacity={0.7}
-  >
-    <View
-      style={[
-        styles.featureIconBox,
-        isEmergency && { backgroundColor: "#FF3B30" },
-      ]}
-    >
-      <Ionicons
-        name={icon}
-        size={28}
-        color={isEmergency ? "white" : iconColor}
-      />
-    </View>
-    <Text
-      style={[
-        styles.featureText,
-        isEmergency && { color: "#FF3B30", fontWeight: "bold" },
-      ]}
-    >
-      {label}
-    </Text>
-  </TouchableOpacity>
-);
-
-export default function HomeScreen() {
+export default function RelativeHomeScreen() {
   const router = useRouter();
 
-  const [name, setName] = useState("Đang tải...");
+  // --- STATES DỮ LIỆU ---
+  const [name, setName] = useState("Người thân");
+
+  // States Thời tiết
   const [temp, setTemp] = useState(0);
   const [weatherType, setWeatherType] = useState("cloudy");
   const [weatherLabel, setWeatherLabel] = useState("Đang tải...");
   const [forecast, setForecast] = useState<any[]>([]);
   const [locationName, setLocationName] = useState("Đang xác định...");
+
+  // States cho Kết nối gia đình
   const [showConnect, setShowConnect] = useState(false);
   const [myKey, setMyKey] = useState("");
   const [isFetchingKey, setIsFetchingKey] = useState(false);
+
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // --- 1. LOGIC LẤY THÔNG TIN USER REALTIME ---
-  useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        const unsubscribeDoc = onSnapshot(
-          doc(db, "users", user.uid),
-          (docSnap) => {
-            if (docSnap.exists()) {
-              const userData = docSnap.data();
-              setName(userData.name || "Người dùng");
-              setMyKey(userData.privateKey || "");
-              AsyncStorage.setItem("userName", userData.name || "Người dùng");
-            }
-          },
-        );
-        return () => unsubscribeDoc();
+  // --- 1. HÀM MỞ KẾT NỐI (LOGIC RIÊNG BIỆT) ---
+  const handleOpenConnect = async () => {
+    console.log("-----------------------------------------");
+    console.log("[DEBUG] >>>> ĐÃ BẤM NÚT KẾT NỐI");
+
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Lỗi", "Vui lòng đăng nhập lại.");
+      return;
+    }
+
+    setMyKey("");
+    setShowConnect(true);
+    setIsFetchingKey(true);
+
+    try {
+      const docRef = doc(db, "users", user.uid);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const userData = docSnap.data();
+
+        if (userData.privateKey) {
+          // TRƯỜNG HỢP 1: ĐÃ CÓ KEY -> HIỂN THỊ LUÔN
+          console.log("[DEBUG] ✅ Đã tìm thấy Key:", userData.privateKey);
+          setMyKey(userData.privateKey);
+        } else {
+          // TRƯỜNG HỢP 2: THIẾU KEY (LỖI BẠN ĐANG GẶP) -> TỰ TẠO MỚI VÀ CẬP NHẬT DB
+          console.log(
+            "[DEBUG] 🛠 Phát hiện thiếu Key. Đang tự động tạo mới...",
+          );
+
+          const autoGeneratedKey = Math.random().toString(36).substring(2, 14); // Tạo mã ngẫu nhiên
+
+          // Gửi lệnh cập nhật lên Firebase
+          const { updateDoc } = await import("firebase/firestore"); // Import nhanh
+          await updateDoc(docRef, { privateKey: autoGeneratedKey });
+
+          console.log(
+            "[DEBUG] ✅ Đã tự sửa lỗi và lưu Key mới:",
+            autoGeneratedKey,
+          );
+          setMyKey(autoGeneratedKey);
+        }
+      } else {
+        setMyKey("ERR_DOC_NOT_FOUND");
       }
-    });
-    return () => unsubscribeAuth();
-  }, []);
+    } catch (error) {
+      console.log("[DEBUG] ❌ Lỗi kết nối:", error);
+      setMyKey("ERR_NETWORK");
+    } finally {
+      setIsFetchingKey(false);
+      console.log("-----------------------------------------");
+    }
+  };
 
-  // --- 2. LOGIC LẮNG NGHE THÔNG BÁO (HIỆN SỐ ĐỎ & NỔ CHUÔNG) ---
+  // --- 2. HÀM LOAD DỮ LIỆU NỀN (TÊN & THỜI TIẾT) ---
   useEffect(() => {
-    let unsubscribe: () => void;
-    const authUnsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        NotificationService.initNotifications();
-        const startTime = Timestamp.now();
+    const loadBackgroundData = async () => {
+      // A. Lấy Tên (Chỉ lấy tên, không lấy Key)
+      try {
+        const savedName = await AsyncStorage.getItem("userName");
+        if (savedName) setName(savedName);
+      } catch (e) {}
 
-        // Lắng nghe tin nhắn/nhắc nhở mới để nổ chuông
-        const q = query(
-          collection(db, "users", user.uid, "notifications"),
-          where("createdAt", ">=", startTime),
-          orderBy("createdAt", "desc"),
-        );
-
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          snapshot.docChanges().forEach((change) => {
-            if (change.type === "added") {
-              const data = change.doc.data();
-              if (Platform.OS !== "web") {
-                NotificationService.triggerLocalNotification(
-                  data.title,
-                  data.body,
-                );
-              }
-            }
-          });
-        });
-
-        // Lắng nghe tổng số tin chưa đọc để hiện Badge (số đỏ)
-        const qUnread = query(
-          collection(db, "users", user.uid, "notifications"),
-          where("isRead", "==", false),
-        );
-        const unsubUnread = onSnapshot(qUnread, (snap) => {
-          setUnreadCount(snap.size);
-          if (Platform.OS !== "web")
-            Notifications.setBadgeCountAsync(snap.size);
-        });
-
-        return () => {
-          if (unsubscribe) unsubscribe();
-          unsubUnread();
-        };
-      }
-    });
-    return () => authUnsub();
-  }, []);
-
-  // --- 3. LOGIC THỜI TIẾT THEO VỊ TRÍ ---
-  useEffect(() => {
-    const loadWeather = async () => {
+      // B. Lấy Thời tiết (Độc lập hoàn toàn)
       try {
         let lat = 10.82;
-        let lon = 106.63;
+        let lon = 106.63; // Default
         let cityName = "TP. Hồ Chí Minh";
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        const isGPSEnabled = await Location.hasServicesEnabledAsync();
 
-        if (status === "granted" && isGPSEnabled) {
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Low,
-          });
-          lat = loc.coords.latitude;
-          lon = loc.coords.longitude;
-          const addr = await Location.reverseGeocodeAsync({
-            latitude: lat,
-            longitude: lon,
-          });
-          if (addr[0]) cityName = addr[0].district || addr[0].city || cityName;
+        // Thử xin quyền (Fail thì thôi, dùng default)
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === "granted") {
+            const loc = await Location.getCurrentPositionAsync({});
+            lat = loc.coords.latitude;
+            lon = loc.coords.longitude;
+            const addr = await Location.reverseGeocodeAsync({
+              latitude: lat,
+              longitude: lon,
+            });
+            if (addr[0])
+              cityName = addr[0].district || addr[0].city || "Vị trí của bạn";
+          }
+        } catch (gpsError) {
+          console.log("Lỗi GPS (Không ảnh hưởng App):", gpsError);
         }
+
         setLocationName(cityName);
-
-        const weatherData = await getWeather(lat, lon);
-        if (weatherData) {
-          const currentCode = weatherData.current.weather_code;
-          setTemp(Math.round(weatherData.current.temperature_2m));
-          setWeatherType(getWeatherIcon(currentCode));
-          setWeatherLabel(getWeatherName(currentCode));
-
-          // FIX LỖI BIẾN DAILY TẠI ĐÂY
+        const wData = await getWeather(lat, lon);
+        if (wData) {
+          setTemp(Math.round(wData.current.temperature_2m));
+          setWeatherType(getWeatherIcon(wData.current.weather_code));
+          setWeatherLabel(getWeatherName(wData.current.weather_code));
           setForecast(
-            weatherData.daily.time.map((time: string, index: number) => ({
-              date: time,
-              max: Math.round(weatherData.daily.temperature_2m_max[index]),
-              icon: getWeatherIcon(weatherData.daily.weather_code[index]),
+            wData.daily.time.slice(0, 3).map((t: any, i: number) => ({
+              date: t,
+              max: Math.round(wData.daily.temperature_2m_max[i]),
+              icon: getWeatherIcon(wData.daily.weather_code[i]),
             })),
           );
         }
-      } catch (e) {}
-    };
-    loadWeather();
-  }, []);
-
-  const handleEmergencyCall = async () => {
-    try {
-      const phoneNumber = await AsyncStorage.getItem("emergency_phone");
-      if (!phoneNumber) {
-        Alert.alert("Cảnh báo", "Chưa cài đặt số khẩn cấp!", [
-          {
-            text: "Cài đặt",
-            onPress: () => router.push("/emergency-settings"),
-          },
-          { text: "Hủy" },
-        ]);
-        return;
+      } catch (e) {
+        console.log("Lỗi thời tiết:", e);
       }
-      Linking.openURL(`tel:${phoneNumber.replace(/\s/g, "")}`);
-    } catch (error) {
-      Alert.alert("Lỗi", "Không thể gọi điện.");
-    }
-  };
+    };
 
-  const handleOpenConnect = async () => {
+    loadBackgroundData();
+  }, []);
+  useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
-    setShowConnect(true);
-    if (!myKey) {
-      setIsFetchingKey(true);
-      try {
-        const userRef = doc(db, "users", user.uid);
-        const snap = await getDoc(userRef);
-        if (snap.exists() && !snap.data().privateKey) {
-          const autoKey = Math.random()
-            .toString(36)
-            .substring(2, 14)
-            .toUpperCase();
-          await updateDoc(userRef, { privateKey: autoKey });
-          setMyKey(autoKey);
-        } else if (snap.exists()) {
-          setMyKey(snap.data().privateKey);
-        }
-      } catch (e) {
-        setMyKey("ERR_NETWORK");
-      } finally {
-        setIsFetchingKey(false);
-      }
-    }
-  };
+
+    // Lắng nghe realtime collection "notifications" của user đó
+    const q = query(
+      collection(db, "users", user.uid, "notifications"),
+      where("isRead", "==", false), // Chỉ đếm cái chưa đọc
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setUnreadCount(snapshot.size); // Cập nhật số lượng
+      },
+      (error) => {
+        console.log("Lỗi badge:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const ActionCard = ({ icon, title, subtitle, onPress }: any) => (
+    <TouchableOpacity
+      style={styles.actionCard}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      <View style={styles.actionIconCircle}>
+        <Ionicons name={icon} size={26} color="#0055aa" />
+      </View>
+      <View>
+        <Text style={styles.actionTitle}>{title}</Text>
+        <Text style={styles.actionSub} numberOfLines={2}>
+          {subtitle}
+        </Text>
+      </View>
+      <View style={styles.cardArrow}>
+        <Ionicons
+          name="chevron-forward"
+          size={16}
+          color="rgba(255,255,255,0.7)"
+        />
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <View style={{ flex: 1 }}>
@@ -279,7 +240,8 @@ export default function HomeScreen() {
         style={styles.background}
         resizeMode="cover"
       >
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={styles.safeArea} edges={["top"]}>
+          {/* HEADER */}
           <View style={styles.header}>
             <View style={styles.userInfo}>
               <Image source={{ uri: avatarUrl }} style={styles.avatar} />
@@ -289,12 +251,15 @@ export default function HomeScreen() {
               </View>
             </View>
             <View style={styles.headerIcons}>
+              {/* NÚT 4 Ô VUÔNG - GẮN HÀM MỚI Ở ĐÂY */}
               <TouchableOpacity
                 style={styles.iconBtn}
                 onPress={handleOpenConnect}
               >
                 <Ionicons name="grid-outline" size={24} color="#0055aa" />
               </TouchableOpacity>
+
+              {/* NÚT THÔNG BÁO ĐÃ ĐƯỢC NÂNG CẤP */}
               <TouchableOpacity
                 style={styles.iconBtn}
                 onPress={() => router.push("/notifications")}
@@ -304,6 +269,8 @@ export default function HomeScreen() {
                   size={24}
                   color="#0055aa"
                 />
+
+                {/* HIỂN THỊ CHẤM ĐỎ NẾU CÓ THÔNG BÁO */}
                 {unreadCount > 0 && (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>
@@ -319,6 +286,7 @@ export default function HomeScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 120 }}
           >
+            {/* THẺ THỜI TIẾT */}
             <LinearGradient
               colors={["#007AFF", "#0055aa"]}
               style={styles.weatherCard}
@@ -342,7 +310,8 @@ export default function HomeScreen() {
               </View>
             </LinearGradient>
 
-            <Text style={styles.sectionTitle}>Dự báo 3 ngày</Text>
+            {/* DỰ BÁO */}
+            <Text style={styles.sectionTitleSmall}>Dự báo 3 ngày</Text>
             <View style={styles.forecastRow}>
               {forecast.length > 0 ? (
                 forecast.map((day, index) => (
@@ -365,60 +334,66 @@ export default function HomeScreen() {
               )}
             </View>
 
+            {/* BANNER PREMIUM */}
             <LinearGradient
               colors={["#2c3e50", "#4ca1af"]}
               style={styles.premiumCard}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Ionicons name="star" size={20} color="#F1C40F" />
-                <Text style={styles.premiumText}> PREMIUM ACTIVE</Text>
+              <View style={{ flex: 1 }}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+                >
+                  <Ionicons name="star" size={18} color="#FFD700" />
+                  <Text style={styles.premTitle}>NÂNG CẤP PREMIUM</Text>
+                </View>
+                <Text style={styles.premSub}>Mở khóa tính năng cao cấp</Text>
               </View>
-              <TouchableOpacity style={styles.manageBtn}>
-                <Text style={styles.manageBtnText}>Quản lý</Text>
+              <TouchableOpacity style={styles.premBtn}>
+                <Text style={styles.premBtnText}>Khám phá</Text>
               </TouchableOpacity>
             </LinearGradient>
 
-            <Text style={styles.sectionTitleCenter}>Chức năng</Text>
+            {/* GRID CHỨC NĂNG */}
+            <Text style={styles.sectionTitle}>Thao tác nhanh</Text>
             <View style={styles.gridContainer}>
-              <FeatureButton
-                icon="heart-outline"
-                label="Sức khỏe"
-                onPress={() => router.push("/health")}
+              <ActionCard
+                icon="camera-outline"
+                title="Camera"
+                subtitle="Giám sát và video"
+                onPress={() => router.push("/camera-monitor")}
               />
-              <FeatureButton icon="play-outline" label="Giải trí" />
-              <FeatureButton
-                icon="time-outline"
-                label="Nhắc nhở"
-                onPress={() => router.push("/reminders")}
+              <ActionCard
+                icon="stats-chart-outline"
+                title="Báo cáo"
+                subtitle="Thống kê chi tiết"
+                onPress={() => router.push("/(relative-tabs)/reports")}
               />
-              <FeatureButton icon="person-outline" label="Gia đình" />
-              <FeatureButton
-                icon="chatbubble-outline"
-                label="Tin nhắn"
-                onPress={() => router.push("/chat")}
+              <ActionCard
+                icon="medkit-outline"
+                title="Thuốc"
+                subtitle="Quản lý thuốc"
+                onPress={() => router.push("/medicine-management")}
               />
-              <FeatureButton
-                icon="settings-outline"
-                label="Cài đặt"
-                onPress={() => router.push("/settings")}
+              <ActionCard
+                icon="add-circle-outline"
+                title="Tạo nhắc nhở"
+                subtitle="Thêm nhắc nhở cho người già"
+                onPress={() => router.push("/create-reminder")}
               />
-              <FeatureButton
-                icon="call"
-                label="Gọi khẩn cấp"
-                isEmergency={true}
-                onPress={handleEmergencyCall}
-              />
-              <FeatureButton icon="add" label="Thêm" iconColor="#666" />
             </View>
           </ScrollView>
         </SafeAreaView>
       </ImageBackground>
 
+      {/* MODAL KẾT NỐI */}
       <FamilyConnectModal
         visible={showConnect}
-        onClose={() => setShowConnect(false)}
+        onClose={() => {
+          setShowConnect(false);
+          setMyKey("");
+        }}
         myPrivateKey={myKey}
         isLoading={isFetchingKey}
       />
@@ -470,7 +445,6 @@ const styles = StyleSheet.create({
   },
   weatherInfo: { justifyContent: "space-between" },
   tempText: { fontSize: 60, color: "white", fontWeight: "bold" },
-  tempRange: { color: "rgba(255,255,255,0.8)", fontSize: 16 },
   location: { color: "white", fontSize: 18, fontWeight: "600" },
   weatherVisual: { alignItems: "center", justifyContent: "center", width: 140 },
   weatherIconMain: { width: 100, height: 100, marginBottom: 5 },
@@ -480,24 +454,18 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
   },
-  sectionTitle: {
+  sectionTitleSmall: {
     fontSize: 16,
     fontWeight: "bold",
     color: "#333",
     marginLeft: 20,
     marginBottom: 10,
   },
-  sectionTitleCenter: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#666",
-    textAlign: "center",
-    marginVertical: 20,
-  },
   forecastRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 20,
+    marginBottom: 20,
   },
   forecastItem: {
     backgroundColor: "rgba(255,255,255,0.9)",
@@ -512,44 +480,66 @@ const styles = StyleSheet.create({
   forecastDay: { color: "#666", fontSize: 14 },
   premiumCard: {
     marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 15,
-    padding: 15,
+    marginBottom: 30,
+    borderRadius: 20,
+    padding: 20,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    elevation: 3,
+    elevation: 5,
   },
-  premiumText: { color: "white", fontWeight: "bold", fontSize: 16 },
-  manageBtn: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingVertical: 5,
+  premTitle: { color: "white", fontWeight: "bold", fontSize: 14 },
+  premSub: { color: "#dbeafe", fontSize: 12, marginTop: 5 },
+  premBtn: {
+    backgroundColor: "white",
+    paddingVertical: 8,
     paddingHorizontal: 15,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.5)",
+    borderRadius: 12,
   },
-  manageBtnText: { color: "white", fontSize: 12 },
+  premBtnText: { color: "#1e40af", fontWeight: "bold", fontSize: 13 },
+  sectionTitle: {
+    textAlign: "center",
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#0055aa",
+    marginBottom: 20,
+  },
   gridContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 10,
+    paddingHorizontal: 20,
+    justifyContent: "space-between",
   },
-  featureItem: { width: "33.33%", alignItems: "center", marginBottom: 20 },
-  featureIconBox: {
-    width: 65,
-    height: 65,
-    backgroundColor: "white",
+  actionCard: {
+    width: (width - 60) / 2,
+    height: 160,
+    backgroundColor: "#3b82f6",
     borderRadius: 25,
+    padding: 15,
+    marginBottom: 20,
+    justifyContent: "space-between",
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  actionIconCircle: {
+    width: 45,
+    height: 45,
+    borderRadius: 15,
+    backgroundColor: "white",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
   },
-  featureText: { color: "#333", fontSize: 14, fontWeight: "500" },
+  actionTitle: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 18,
+    marginTop: 10,
+  },
+  actionSub: { color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 4 },
+  cardArrow: { alignSelf: "flex-end" },
   badge: {
     position: "absolute",
     top: -5,
@@ -564,5 +554,9 @@ const styles = StyleSheet.create({
     borderColor: "white",
     zIndex: 10,
   },
-  badgeText: { color: "white", fontSize: 9, fontWeight: "bold" },
+  badgeText: {
+    color: "white",
+    fontSize: 9,
+    fontWeight: "bold",
+  },
 });

@@ -19,7 +19,20 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "pan",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": {
+            "scheme": "tel"
+          }
+        }
+      ],
+      "permissions": [
+        "CALL_PHONE"
+      ],
+      "package": "com.shibe.VieGrandApp"
     },
     "web": {
       "output": "static",
@@ -43,6 +56,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "844594b3-7be1-45da-a4dc-cf66e3e6b94c"
+      }
     }
   }
 }
