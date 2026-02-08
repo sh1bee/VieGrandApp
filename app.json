@@ -4,7 +4,7 @@
     "slug": "VieGrandApp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/logo_viegrand.png",
     "scheme": "viegrandapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -29,9 +29,7 @@
           }
         }
       ],
-      "permissions": [
-        "CALL_PHONE"
-      ],
+      "permissions": ["CALL_PHONE"],
       "package": "com.shibe.VieGrandApp"
     },
     "web": {

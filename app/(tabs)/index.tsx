@@ -7,12 +7,14 @@ import * as Notifications from "expo-notifications"; // 4. Thêm import Notifica
 import { useRouter } from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
 import {
+  arrayUnion,
   collection,
   doc,
   getDoc,
   onSnapshot,
   orderBy,
-  query, // 1. Thêm orderBy
+  query,
+  serverTimestamp,
   Timestamp,
   updateDoc,
   where,
@@ -25,10 +27,12 @@ import {
   Image,
   ImageBackground,
   Linking,
+  Modal,
   Platform, // 3. Đã có Platform ở đây
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -110,6 +114,10 @@ export default function HomeScreen() {
   const [myKey, setMyKey] = useState("");
   const [isFetchingKey, setIsFetchingKey] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [emergencyInput, setEmergencyInput] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
 
   // --- 1. LOGIC LẤY THÔNG TIN USER REALTIME ---
   useEffect(() => {
@@ -181,6 +189,63 @@ export default function HomeScreen() {
     return () => authUnsub();
   }, []);
 
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // 1. Cập nhật thời gian online lên Firestore cho VPS theo dõi
+        updateDoc(doc(db, "users", user.uid), {
+          lastLoginAt: serverTimestamp()
+        });
+
+        // 2. Lắng nghe dữ liệu User
+        const unsubDoc = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            const userData = docSnap.data();
+            setName(userData.name || "Người dùng");
+            
+            // --- KIỂM TRA SỐ KHẨN CẤP ---
+            // Nếu chưa có số trong database -> Bắt buộc hiện Modal
+            if (!userData.emergency_phone || userData.emergency_phone.trim() === "") {
+              setShowEmergencyModal(true);
+            } else {
+              // Nếu có rồi thì lưu vào máy để dùng cho nút gọi đỏ
+              AsyncStorage.setItem("emergency_phone", userData.emergency_phone);
+              setShowEmergencyModal(false);
+            }
+          }
+        });
+        return () => unsubDoc();
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  // --- HÀM LƯU SỐ KHẨN CẤP BẮT BUỘC ---
+  const handleForceSavePhone = async () => {
+    if (emergencyInput.length < 10) {
+      Alert.alert("Thông báo", "Vui lòng nhập số điện thoại hợp lệ.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        await updateDoc(doc(db, "users", user.uid), {
+          emergency_phone: emergencyInput
+        });
+        await AsyncStorage.setItem("emergency_phone", emergencyInput);
+        Alert.alert("Thành công", "Đã lưu số điện thoại người thân.");
+        setShowEmergencyModal(false);
+      }
+    } catch (e) {
+      Alert.alert("Lỗi", "Không thể kết nối với máy chủ.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+
   // --- 3. LOGIC THỜI TIẾT THEO VỊ TRÍ ---
   useEffect(() => {
     const loadWeather = async () => {
@@ -244,6 +309,22 @@ export default function HomeScreen() {
       Alert.alert("Lỗi", "Không thể gọi điện.");
     }
   };
+  const registerPushToken = async () => {
+    const user = auth.currentUser;
+    if (user) {
+      const token =
+        await NotificationService.registerForPushNotificationsAsync();
+      if (token) {
+        // Lưu token vào mảng fcmTokens (dùng arrayUnion để không bị trùng)
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          fcmTokens: arrayUnion(token),
+          lastLoginAt: serverTimestamp(), // Cập nhật giờ online
+        });
+      }
+    }
+  };
+  registerPushToken();
 
   const handleOpenConnect = async () => {
     const user = auth.currentUser;
@@ -415,6 +496,38 @@ export default function HomeScreen() {
           </ScrollView>
         </SafeAreaView>
       </ImageBackground>
+      
+      {/* --- MODAL CHẶN (BẮT BUỘC NHẬP SỐ) --- */}
+      <Modal visible={showEmergencyModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.warningIconCircle}>
+              <Ionicons name="warning" size={40} color="#FF9800" />
+            </View>
+            <Text style={styles.modalTitle}>Thông tin bắt buộc</Text>
+            <Text style={styles.modalDesc}>
+              Bác vui lòng nhập số điện thoại của con cháu hoặc người thân để chúng cháu có thể hỗ trợ bác ngay khi cần thiết.
+            </Text>
+
+            <TextInput 
+              style={styles.modalInput}
+              placeholder="Nhập số điện thoại (10 số)..."
+              keyboardType="numeric"
+              value={emergencyInput}
+              onChangeText={setEmergencyInput}
+              maxLength={11}
+            />
+
+            <TouchableOpacity 
+              style={[styles.modalBtn, isSaving && { opacity: 0.7 }]} 
+              onPress={handleForceSavePhone}
+              disabled={isSaving}
+            >
+              {isSaving ? <ActivityIndicator color="white" /> : <Text style={styles.modalBtnText}>Lưu và Bắt đầu</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <FamilyConnectModal
         visible={showConnect}
@@ -423,6 +536,7 @@ export default function HomeScreen() {
         isLoading={isFetchingKey}
       />
     </View>
+    
   );
 }
 
@@ -565,4 +679,12 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   badgeText: { color: "white", fontSize: 9, fontWeight: "bold" },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 25 },
+  modalCard: { backgroundColor: 'white', width: '100%', borderRadius: 25, padding: 25, alignItems: 'center' },
+  warningIconCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 10 },
+  modalDesc: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 20, lineHeight: 22 },
+  modalInput: { width: '100%', height: 55, borderWidth: 1, borderColor: '#DDD', borderRadius: 12, paddingHorizontal: 15, fontSize: 18, backgroundColor: '#F9F9F9', marginBottom: 20, textAlign: 'center' },
+  modalBtn: { width: '100%', height: 55, backgroundColor: '#007AFF', borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  modalBtnText: { color: 'white', fontSize: 16, fontWeight: 'bold' }
 });

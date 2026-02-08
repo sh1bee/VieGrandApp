@@ -22,7 +22,7 @@ import { auth } from "../../src/config/firebase";
 export default function SettingsScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
-  const [emergencyPhone, setEmergencyPhone] = useState("0902716951");
+  const [emergencyPhone, setEmergencyPhone] = useState("");
 
   // STATE CHO THÔNG TIN NGƯỜI DÙNG
   const [userName, setUserName] = useState("Người dùng");

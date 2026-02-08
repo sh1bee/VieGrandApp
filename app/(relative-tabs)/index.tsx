@@ -5,12 +5,15 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import {
+  arrayUnion,
   collection,
   doc,
   getDoc,
   onSnapshot,
   query,
-  where,
+  serverTimestamp,
+  updateDoc,
+  where
 } from "firebase/firestore"; // Bỏ onSnapshot ở đây để tránh xung đột
 import React, { useEffect, useState } from "react";
 import {
@@ -30,6 +33,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 // Import các tài nguyên và dịch vụ
 import FamilyConnectModal from "../../src/components/FamilyConnectModal";
 import { auth, db } from "../../src/config/firebase";
+import { NotificationService } from "../../src/services/NotificationService";
 import {
   getWeather,
   getWeatherIcon,
@@ -207,6 +211,22 @@ export default function RelativeHomeScreen() {
 
     return () => unsubscribe();
   }, []);
+  const registerPushToken = async () => {
+    const user = auth.currentUser;
+    if (user) {
+      const token =
+        await NotificationService.registerForPushNotificationsAsync();
+      if (token) {
+        // Lưu token vào mảng fcmTokens (dùng arrayUnion để không bị trùng)
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          fcmTokens: arrayUnion(token),
+          lastLoginAt: serverTimestamp(), // Cập nhật giờ online
+        });
+      }
+    }
+  };
+  registerPushToken();
 
   const ActionCard = ({ icon, title, subtitle, onPress }: any) => (
     <TouchableOpacity
@@ -445,6 +465,7 @@ const styles = StyleSheet.create({
   },
   weatherInfo: { justifyContent: "space-between" },
   tempText: { fontSize: 60, color: "white", fontWeight: "bold" },
+  tempRange: { color: "white", fontSize: 14, opacity: 0.9 },
   location: { color: "white", fontSize: 18, fontWeight: "600" },
   weatherVisual: { alignItems: "center", justifyContent: "center", width: 140 },
   weatherIconMain: { width: 100, height: 100, marginBottom: 5 },

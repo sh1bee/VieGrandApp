@@ -1,4 +1,6 @@
 // src/services/NotificationService.ts
+import Constants from "expo-constants";
+import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import {
   addDoc,
@@ -9,6 +11,9 @@ import {
 } from "firebase/firestore";
 import { Platform } from "react-native";
 import { db } from "../config/firebase";
+
+// Địa chỉ VPS của bạn
+const VPS_URL = "http://160.30.113.26:3000";
 
 // Cấu hình cách thông báo hiển thị khi đang mở app
 Notifications.setNotificationHandler({
@@ -27,14 +32,15 @@ export const NotificationService = {
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
         name: "VieGrand Channel",
-        importance: Notifications.AndroidImportance.MAX, // Mức cao nhất để hiện banner & chuông
+        importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: "#007AFF",
-        sound: "default", // Sử dụng tiếng Ting mặc định hệ thống
+        sound: "default",
       });
     }
   },
-  // 1. Xin quyền
+
+  // 2. Xin quyền thông báo
   requestPermissions: async () => {
     const { status: existingStatus } =
       await Notifications.getPermissionsAsync();
@@ -46,7 +52,7 @@ export const NotificationService = {
     return finalStatus === "granted";
   },
 
-  // 2. Lưu lịch sử (Để hiện chấm đỏ badge)
+  // 3. GỬI THÔNG BÁO QUA VPS & LƯU LỊCH SỬ (ĐÃ CẬP NHẬT)
   sendInAppNotification: async (
     userId: string,
     title: string,
@@ -54,7 +60,7 @@ export const NotificationService = {
     type: "chat" | "reminder",
   ) => {
     try {
-      // Quan trọng: Dùng serverTimestamp() để đồng bộ thời gian tuyệt đối
+      // BƯỚC A: Lưu vào Firestore để hiện trong tab "Thông báo" của App
       await addDoc(collection(db, "users", userId, "notifications"), {
         title,
         body,
@@ -62,12 +68,57 @@ export const NotificationService = {
         isRead: false,
         createdAt: serverTimestamp(),
       });
+
+      // BƯỚC B: Gọi sang VPS để VPS bắn Push Notification ngay lập tức
+      console.log(`>>> Đang yêu cầu VPS gửi thông báo tới: ${userId}`);
+
+      fetch(`${VPS_URL}/send-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: userId,
+          title: title,
+          body: body,
+          data: { type: type },
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => console.log(">>> Phản hồi từ VPS:", data))
+        .catch((err) =>
+          console.log(">>> Lỗi gọi VPS (Có thể do Firewall):", err),
+        );
     } catch (e) {
-      console.error(e);
+      console.error("Lỗi xử lý thông báo:", e);
     }
   },
 
-  // 3. ĐÃ BỔ SUNG: Lên lịch thông báo hệ thống (Chạy cả khi tắt máy)
+  // 4. Lấy Token thông báo của máy (Để lưu vào DB cho VPS dùng)
+  registerForPushNotificationsAsync: async () => {
+    let token: string | null = null;
+    if (Device.isDevice) {
+      const { status: existingStatus } =
+        await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== "granted") return null;
+
+      const projectId =
+        Constants?.expoConfig?.extra?.eas?.projectId ??
+        (Constants as any)?.easConfig?.projectId;
+
+      const tokenObj = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : undefined,
+      );
+      token = tokenObj.data;
+      console.log("✅ Đã lấy được Push Token:", token);
+    }
+    return token;
+  },
+
+  // 5. Lên lịch nhắc nhở hệ thống
   scheduleReminder: async (
     title: string,
     body: string,
@@ -83,7 +134,6 @@ export const NotificationService = {
 
       const now = new Date();
       if (triggerDate > now) {
-        // Tùy biến icon/tiêu đề dựa theo loại nhắc nhở
         let prefix = "⏰ Nhắc nhở";
         if (type === "pill") prefix = "💊 Đến giờ uống thuốc";
         if (type === "water") prefix = "💧 Đến giờ uống nước";
@@ -92,8 +142,8 @@ export const NotificationService = {
         await Notifications.scheduleNotificationAsync({
           identifier: id,
           content: {
-            title: `${prefix}: ${title}`, // VD: 💊 Đến giờ uống thuốc: Aspirin
-            body: `Nội dung: ${body}`,
+            title: `${prefix}: ${title}`,
+            body: body,
             sound: "default",
             priority: Notifications.AndroidNotificationPriority.MAX,
           },
@@ -104,11 +154,11 @@ export const NotificationService = {
         });
       }
     } catch (error) {
-      console.log(error);
+      console.log("Lỗi lên lịch nhắc nhở:", error);
     }
   },
 
-  // 4. Đánh dấu đã đọc
+  // 6. Đánh dấu đã đọc
   markAsRead: async (userId: string, notifId: string) => {
     try {
       const ref = doc(db, "users", userId, "notifications", notifId);
@@ -117,8 +167,10 @@ export const NotificationService = {
       console.error(e);
     }
   },
-  // 3. Hàm kích hoạt thông báo hệ thống ngay lập tức (Trigger)
+
+  // 7. Kích hoạt thông báo tại chỗ
   triggerLocalNotification: async (title: string, body: string) => {
+    if (Platform.OS === "web") return; // Tránh lỗi trên Web
     await Notifications.scheduleNotificationAsync({
       content: {
         title: title,
@@ -126,7 +178,7 @@ export const NotificationService = {
         sound: true,
         priority: Notifications.AndroidNotificationPriority.MAX,
       },
-      trigger: null, // null = Hiện ngay lập tức
+      trigger: null,
     });
   },
 };
