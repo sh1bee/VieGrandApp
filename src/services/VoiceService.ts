@@ -1,37 +1,11 @@
 // src/services/VoiceService.ts
 
-const GROQ_API_KEY = ""; // Nhớ điền Key của bạn
+// API key được lấy từ file .env (EXPO_PUBLIC_ prefix bắt buộc cho Expo)
+const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || "";
 
 export const VoiceService = {
-  // 1. Chuyển âm thanh thành văn bản (STT) - GIỮ NGUYÊN
-  transcribeAudio: async (uri: string) => {
-    try {
-      const formData = new FormData();
-      // @ts-ignore
-      formData.append("file", { uri, name: "audio.m4a", type: "audio/m4a" });
-      formData.append("model", "whisper-large-v3");
-      formData.append("language", "vi");
-
-      const response = await fetch(
-        "https://api.groq.com/openai/v1/audio/transcriptions",
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
-          body: formData,
-        },
-      );
-      const data = await response.json();
-      return data.text || "";
-    } catch (e) {
-      return "";
-    }
-  },
-
-  // 2. PHÂN TÍCH Ý ĐỊNH & TRẢ LỜI (AI BRAIN)
-  // src/services/VoiceService.ts
-
-  // ...
-
+  // PHÂN TÍCH Ý ĐỊNH & TRẢ LỜI (AI BRAIN)
+  // Nhận text từ STT on-device, gửi lên Groq Llama để phân tích ý định
   processUserRequest: async (text: string) => {
     try {
       const response = await fetch(

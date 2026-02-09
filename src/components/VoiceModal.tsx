@@ -1,8 +1,11 @@
 // src/components/VoiceModal.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { Audio } from "expo-av";
 import * as Speech from "expo-speech";
-import React, { useEffect, useRef, useState } from "react";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -30,20 +33,21 @@ export default function VoiceModal({
   onSpeechText,
   mode = "command",
 }: VoiceModalProps) {
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [status, setStatus] = useState("Đang nghe...");
+  const [isListening, setIsListening] = useState(false);
+  const [status, setStatus] = useState("Cháu đang nghe...");
   const [userText, setUserText] = useState("");
+  const [interimText, setInterimText] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isFailed, setIsFailed] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasProcessedRef = useRef(false);
 
   // --- 1. HIỆU ỨNG VÒNG TRÒN ĐỒNG TÂM ---
   useEffect(() => {
-    if (recording || isSpeaking) {
+    if (isListening || isSpeaking) {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -63,106 +67,125 @@ export default function VoiceModal({
     } else {
       pulseAnim.setValue(1);
     }
-  }, [recording, isSpeaking]);
+  }, [isListening, isSpeaking]);
 
-  useEffect(() => {
-    if (visible) {
-      resetState();
-      startRecording();
+  // --- 2. SPEECH RECOGNITION EVENTS (REAL-TIME) ---
+  useSpeechRecognitionEvent("start", () => {
+    setIsListening(true);
+  });
+
+  useSpeechRecognitionEvent("end", () => {
+    setIsListening(false);
+  });
+
+  useSpeechRecognitionEvent("result", (event) => {
+    const transcript = event.results[0]?.transcript || "";
+
+    if (event.isFinal) {
+      // Kết quả cuối cùng - xử lý ngay
+      setInterimText("");
+      if (transcript.trim()) {
+        processTranscript(transcript.trim());
+      } else {
+        handleAIError("Cháu chưa nghe rõ ạ...");
+      }
     } else {
-      stopRecording();
-      Speech.stop();
+      // Kết quả tạm thời - hiển thị real-time cho người dùng thấy
+      setInterimText(transcript);
     }
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [visible]);
+  });
 
-  const resetState = () => {
-    setUserText("");
-    setAiResponse("");
-    setIsProcessing(false);
-    setIsSpeaking(false);
-    setIsFailed(false);
-    setStatus("Cháu đang nghe...");
-  };
+  useSpeechRecognitionEvent("error", (event) => {
+    console.log("STT error:", event.error, event.message);
+    setIsListening(false);
 
-  // --- 2. GHI ÂM ---
-  async function startRecording() {
+    if (event.error === "no-speech") {
+      handleAIError("Cháu chưa nghe thấy gì, bác nói lại nhé?");
+    } else if (event.error === "not-allowed") {
+      handleAIError("Bác cần cấp quyền micro cho ứng dụng ạ.");
+    } else {
+      handleAIError("Cháu chưa nghe rõ, bác nói lại nhé?");
+    }
+  });
+
+  // --- 3. BẮT ĐẦU / DỪNG NGHE ---
+  const startListening = useCallback(async () => {
     try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== "granted") return;
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      const result =
+        await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) {
+        handleAIError("Bác cần cấp quyền micro cho ứng dụng ạ.");
+        return;
+      }
+
+      hasProcessedRef.current = false;
+
+      ExpoSpeechRecognitionModule.start({
+        lang: "vi-VN",
+        interimResults: true,
+        continuous: false,
+        addsPunctuation: true,
+        // Tùy chọn: ưu tiên on-device nếu có thể
+        requiresOnDeviceRecognition: false,
+        androidIntentOptions: {
+          EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 3000,
+        },
       });
+    } catch (err) {
+      console.log("Start listening error:", err);
+      handleAIError("Không thể bắt đầu nghe, bác thử lại nhé.");
+    }
+  }, []);
 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-      );
-      setRecording(recording);
-      setIsFailed(false);
-      setStatus("Cháu đang nghe...");
-
-      // Tự động dừng sau 4 giây để phân tích
-      timerRef.current = setTimeout(() => stopAndAnalyze(recording), 4000);
-    } catch (err) {}
-  }
-
-  // --- 3. PHÂN TÍCH THÔNG MINH (GIẤU RAW TEXT) ---
-  async function stopAndAnalyze(currentRec: Audio.Recording) {
-    if (!currentRec) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-
-    setStatus("Đang suy nghĩ...");
-    setIsProcessing(true);
-
+  const stopListening = useCallback(() => {
     try {
-      await currentRec.stopAndUnloadAsync();
-      const uri = currentRec.getURI();
-      setRecording(null);
+      ExpoSpeechRecognitionModule.stop();
+    } catch (e) {}
+  }, []);
 
-      if (uri) {
-        // Bước A: Chuyển giọng nói thành chữ
-        const rawText = await VoiceService.transcribeAudio(uri);
+  // --- 4. XỬ LÝ KẾT QUẢ STT ---
+  const processTranscript = useCallback(
+    async (rawText: string) => {
+      // Tránh xử lý trùng lặp
+      if (hasProcessedRef.current) return;
+      hasProcessedRef.current = true;
 
-        if (!rawText.trim()) {
-          handleAIError("Cháu chưa nghe rõ ạ...");
-          return;
-        }
+      // Chế độ Tin nhắn: Trả về text trực tiếp
+      if (mode === "text") {
+        setUserText(`"${rawText}"`);
+        setTimeout(() => {
+          if (onSpeechText) onSpeechText(rawText);
+          onClose();
+        }, 1000);
+        return;
+      }
 
-        // Chế độ Tin nhắn: Hiện văn bản để người dùng kiểm tra
-        if (mode === "text") {
-          setUserText(`"${rawText}"`);
-          setTimeout(() => {
-            if (onSpeechText) onSpeechText(rawText);
-            onClose();
-          }, 1000);
-          return;
-        }
+      // Chế độ Lệnh thoại: Gửi qua AI phân tích ý định
+      setStatus("Đang suy nghĩ...");
+      setIsProcessing(true);
 
-        // Chế độ Lệnh thoại: Không hiện rawText ngay, gửi qua Llama để lọc/đoán ý
+      try {
         const result = await VoiceService.processUserRequest(rawText);
 
         if (result.type === "ACTION") {
-          // Hiện câu đã được AI sửa đúng (VD: Mở Cài đặt)
           handleAIResponse(
             "ACTION",
             result.message || "Dạ vâng ạ",
             result.content,
           );
         } else if (result.type === "CHAT" && result.content !== "UNKNOWN") {
-          // Tâm sự
           handleAIResponse("CHAT", result.content);
         } else {
           handleAIError("Cháu không nghe rõ, bác nói lại nhé?");
         }
+      } catch (e) {
+        handleAIError("Có lỗi kết nối, bác thử lại giúp cháu.");
       }
-    } catch (e) {
-      handleAIError("Có lỗi kết nối, bác thử lại giúp cháu.");
-    }
-  }
+    },
+    [mode, onSpeechText, onClose, onAction],
+  );
 
+  // --- 5. XỬ LÝ PHẢN HỒI AI ---
   const handleAIResponse = (
     type: "ACTION" | "CHAT",
     message: string,
@@ -182,7 +205,6 @@ export default function VoiceModal({
         }
         if (type === "CHAT") {
           setStatus("Bác muốn nói gì nữa không ạ?");
-          // startRecording(); // Bật dòng này nếu muốn trò chuyện liên tục
         }
       },
     });
@@ -195,15 +217,31 @@ export default function VoiceModal({
     setStatus("Bác nói lại nhé?");
   };
 
-  async function stopRecording() {
-    if (recording) {
-      try {
-        await recording.stopAndUnloadAsync();
-      } catch (e) {}
-      setRecording(null);
-    }
-  }
+  const resetState = () => {
+    setUserText("");
+    setInterimText("");
+    setAiResponse("");
+    setIsProcessing(false);
+    setIsSpeaking(false);
+    setIsFailed(false);
+    setStatus("Cháu đang nghe...");
+    hasProcessedRef.current = false;
+  };
 
+  // --- 6. LIFECYCLE: Mở/đóng modal ---
+  useEffect(() => {
+    if (visible) {
+      resetState();
+      // Delay nhỏ để modal hiển thị xong rồi mới bắt đầu nghe
+      const timer = setTimeout(() => startListening(), 300);
+      return () => clearTimeout(timer);
+    } else {
+      stopListening();
+      Speech.stop();
+    }
+  }, [visible]);
+
+  // --- 7. RENDER ---
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.overlay}>
@@ -212,13 +250,13 @@ export default function VoiceModal({
 
           <View style={styles.micArea}>
             <View style={styles.iconContainer}>
-              {/* Vòng tròn Animation đồng tâm 100% */}
+              {/* Vòng tròn Animation đồng tâm */}
               <Animated.View
                 style={[
                   styles.pulseCircle,
                   {
                     transform: [{ scale: pulseAnim }],
-                    opacity: recording || isSpeaking ? 1 : 0,
+                    opacity: isListening || isSpeaking ? 1 : 0,
                     backgroundColor: isSpeaking
                       ? "rgba(76, 175, 80, 0.3)"
                       : "rgba(0, 136, 204, 0.3)",
@@ -229,7 +267,7 @@ export default function VoiceModal({
               <TouchableOpacity
                 style={[
                   styles.micCircle,
-                  recording
+                  isListening
                     ? { backgroundColor: "#FF3B30" }
                     : isSpeaking
                       ? { backgroundColor: "#4CAF50" }
@@ -238,13 +276,14 @@ export default function VoiceModal({
                         : null,
                 ]}
                 onPress={() => {
-                  if (recording) stopAndAnalyze(recording);
-                  else if (isSpeaking) {
+                  if (isListening) {
+                    stopListening();
+                  } else if (isSpeaking) {
                     Speech.stop();
                     setIsSpeaking(false);
                   } else {
                     resetState();
-                    startRecording();
+                    startListening();
                   }
                 }}
               >
@@ -253,7 +292,7 @@ export default function VoiceModal({
                 ) : (
                   <Ionicons
                     name={
-                      recording
+                      isListening
                         ? "stop"
                         : isSpeaking
                           ? "volume-high"
@@ -271,6 +310,11 @@ export default function VoiceModal({
 
           {/* HIỂN THỊ HỘI THOẠI */}
           <View style={styles.chatContainer}>
+            {/* Hiện text real-time khi đang nghe */}
+            {isListening && interimText ? (
+              <Text style={styles.interimText}>{interimText}...</Text>
+            ) : null}
+
             {/* Raw text chỉ hiện ở mode tin nhắn */}
             {mode === "text" && userText ? (
               <Text style={styles.userText}>{userText}</Text>
@@ -279,7 +323,9 @@ export default function VoiceModal({
             {/* Luôn hiện câu trả lời/xác nhận sạch sẽ từ AI */}
             {aiResponse ? (
               <View style={[styles.aiBubble, isFailed && styles.aiBubbleError]}>
-                <Text style={[styles.aiText, isFailed && { color: "#E74C3C" }]}>
+                <Text
+                  style={[styles.aiText, isFailed && { color: "#E74C3C" }]}
+                >
                   {aiResponse}
                 </Text>
               </View>
@@ -296,7 +342,7 @@ export default function VoiceModal({
                 style={styles.retryBtn}
                 onPress={() => {
                   resetState();
-                  startRecording();
+                  startListening();
                 }}
               >
                 <Text style={styles.retryText}>Nói lại</Text>
@@ -360,6 +406,13 @@ const styles = StyleSheet.create({
   },
 
   chatContainer: { width: "100%", marginVertical: 10, minHeight: 60 },
+  interimText: {
+    textAlign: "center",
+    color: "#0088cc",
+    fontStyle: "italic",
+    fontSize: 16,
+    marginBottom: 8,
+  },
   userText: {
     textAlign: "right",
     color: "#999",

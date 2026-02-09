@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "VieGrand cần quyền nhận diện giọng nói để hiểu lệnh của bạn.",
+        "NSMicrophoneUsageDescription": "VieGrand cần quyền micro để nghe lệnh thoại của bạn."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -29,7 +33,10 @@
           }
         }
       ],
-      "permissions": ["CALL_PHONE"],
+      "permissions": [
+        "CALL_PHONE",
+        "android.permission.RECORD_AUDIO"
+      ],
       "package": "com.shibe.VieGrandApp"
     },
     "web": {
@@ -49,6 +56,16 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "VieGrand cần quyền micro để nghe lệnh thoại của bạn.",
+          "speechRecognitionPermission": "VieGrand cần quyền nhận diện giọng nói để hiểu lệnh của bạn.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
       ]
     ],
     "experiments": {
@@ -58,8 +75,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "844594b3-7be1-45da-a4dc-cf66e3e6b94c"
+        "projectId": "ab945103-eb78-4998-aef9-75689718c8e9"
       }
-    }
+    },
+    "owner": "phungminhkhoa"
   }
 }
