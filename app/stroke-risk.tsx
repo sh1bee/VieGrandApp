@@ -21,21 +21,27 @@ export default function StrokeRisk() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [analysis, setAnalysis] = useState<any>(null);
-  const [useNormalData, setUseNormalData] = useState(false);
+  const [dataType, setDataType] = useState<"high" | "normal" | "medium">("high");
 
   useEffect(() => {
     loadAnalysis();
-  }, [useNormalData]);
+  }, [dataType]);
 
   const loadAnalysis = async () => {
     try {
-      const data = await StrokeRiskService.getAnalysis(useNormalData);
+      const data = await StrokeRiskService.getAnalysis(dataType);
       setAnalysis(data);
     } catch (e) {
       console.log("Lỗi load analysis:", e);
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleDataType = () => {
+    if (dataType === "high") setDataType("medium");
+    else if (dataType === "medium") setDataType("normal");
+    else setDataType("high");
   };
 
   if (loading) {
@@ -68,7 +74,7 @@ export default function StrokeRisk() {
         <Text style={styles.headerTitle}>Nguy cơ đột quỵ</Text>
         <TouchableOpacity 
           style={styles.hiddenBtn} 
-          onPress={() => setUseNormalData(!useNormalData)}
+          onPress={toggleDataType}
         >
           <View style={{ width: 40, height: 40 }} />
         </TouchableOpacity>
@@ -89,7 +95,7 @@ export default function StrokeRisk() {
             risk.level === "high"
               ? ["#FF5252", "#FF1744"]
               : risk.level === "medium"
-                ? ["#FFA726", "#FF6F00"]
+                ? ["#FFD54F", "#FFC107"]
                 : ["#66BB6A", "#43A047"]
           }
           style={styles.scoreCard}
