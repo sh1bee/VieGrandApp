@@ -4,13 +4,13 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Dimensions,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { LineChart } from "react-native-gifted-charts";
 import { HealthService } from "../../src/services/HealthService";
 
@@ -31,18 +31,11 @@ export default function HealthChart() {
   // 3. Hàm lấy dữ liệu thật từ Firebase
   const loadRealData = async () => {
     try {
-      // Lấy dữ liệu
       const records = await HealthService.getRecords(timeRange);
-
-      // Đảo ngược để hiện từ cũ đến mới (trên biểu đồ đi từ trái sang phải)
-      // Dùng [...records] để copy mảng trước khi reverse để tránh lỗi mutation
       const sorted = [...records].reverse();
 
-      // Map dữ liệu sang format của biểu đồ
-      // QUAN TRỌNG: Thêm (r: any) để TypeScript không báo lỗi đỏ
       const sys = sorted.map((r: any) => ({
         value: r.sys,
-        // Xử lý hiển thị ngày tháng (DD/MM)
         label: r.createdAt
           ? `${new Date(r.createdAt.seconds * 1000).getDate()}/${new Date(r.createdAt.seconds * 1000).getMonth() + 1}`
           : "",
@@ -53,7 +46,10 @@ export default function HealthChart() {
 
       const pulse = sorted.map((r: any) => ({
         value: r.pulse,
-        dataPointText: dataType === "HR" ? r.pulse.toString() : "",
+        label: r.createdAt
+          ? `${new Date(r.createdAt.seconds * 1000).getDate()}/${new Date(r.createdAt.seconds * 1000).getMonth() + 1}`
+          : "",
+        dataPointText: r.pulse.toString(),
       }));
 
       setSysData(sys);
@@ -134,13 +130,12 @@ export default function HealthChart() {
         <View style={styles.chartCard}>
           <LineChart
             thickness={3}
-            color1="#FF4D4D" // Tâm thu (Đỏ)
-            color2="#FFA500" // Tâm trương (Cam)
-            color3="#6200EE" // Nhịp tim (Tím)
-            // Logic ẩn hiện đường kẻ dựa trên Tab
-            data={dataType === "HR" ? [] : sysData}
+            color1={dataType === "HR" ? "#6200EE" : "#FF4D4D"}
+            color2="#FFA500"
+            color3="#6200EE"
+            data={dataType === "HR" ? pulseData : sysData}
             data2={dataType === "HR" ? [] : diaData}
-            data3={dataType === "BP" ? [] : pulseData}
+            data3={dataType === "ALL" ? pulseData : []}
             height={250}
             width={width - 80}
             initialSpacing={20}
@@ -150,7 +145,7 @@ export default function HealthChart() {
             xAxisColor="#EEE"
             yAxisTextStyle={{ color: "#999" }}
             xAxisLabelTextStyle={{ color: "#999", fontSize: 10 }}
-            curved // Biểu đồ đường cong mượt
+            curved
             hideDataPoints={false}
             dataPointsRadius={4}
             textFontSize={10}

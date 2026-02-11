@@ -1,13 +1,14 @@
 // app/profile.tsx
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  SafeAreaView,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../src/config/firebase";
 
 export default function ProfileScreen() {
@@ -32,7 +34,7 @@ export default function ProfileScreen() {
     age: "",
     gender: "",
     address: "",
-    role: "", // Dữ liệu từ DB (elder/relative)
+    role: "",
     status: "active",
     bloodType: "",
     allergy: "",
@@ -46,6 +48,7 @@ export default function ProfileScreen() {
     glucose: "",
     bmi: "",
     smoking: "",
+    avatarUrl: "",
   });
 
   // 2. Hàm lấy dữ liệu thật từ Firebase
@@ -75,6 +78,21 @@ export default function ProfileScreen() {
 
   const updateField = (field: string, value: string) => {
     setProfile({ ...profile, [field]: value });
+  };
+
+  const handlePickAvatar = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      const avatarBase64 = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      setProfile({ ...profile, avatarUrl: avatarBase64 });
+    }
   };
 
   // 3. Hàm Lưu dữ liệu lên Firebase
@@ -130,10 +148,16 @@ export default function ProfileScreen() {
         {/* AVATAR & INFO TÓM TẮT */}
         <View style={styles.profileSummaryCard}>
           <View style={styles.avatarContainer}>
-            <View style={styles.avatarCircle}>
-              <Ionicons name="person-outline" size={65} color="#0055aa" />
-            </View>
-            <TouchableOpacity style={styles.cameraBtn}>
+            {profile.avatarUrl ? (
+              <Image source={{ uri: profile.avatarUrl }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarInitials}>
+                  {profile.name ? profile.name.charAt(0).toUpperCase() : "?"}
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity style={styles.cameraBtn} onPress={handlePickAvatar}>
               <Ionicons name="camera" size={18} color="white" />
             </TouchableOpacity>
           </View>
@@ -438,9 +462,19 @@ const styles = StyleSheet.create({
     width: 110,
     height: 110,
     borderRadius: 55,
-    backgroundColor: "#F0F5FA",
+    backgroundColor: "#0055aa",
     justifyContent: "center",
     alignItems: "center",
+  },
+  avatarImage: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+  },
+  avatarInitials: {
+    fontSize: 48,
+    fontWeight: "bold",
+    color: "white",
   },
   cameraBtn: {
     position: "absolute",

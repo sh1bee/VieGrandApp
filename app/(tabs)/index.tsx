@@ -105,6 +105,7 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const [name, setName] = useState("Đang tải...");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [temp, setTemp] = useState(0);
   const [weatherType, setWeatherType] = useState("cloudy");
   const [weatherLabel, setWeatherLabel] = useState("Đang tải...");
@@ -129,6 +130,7 @@ export default function HomeScreen() {
             if (docSnap.exists()) {
               const userData = docSnap.data();
               setName(userData.name || "Người dùng");
+              setAvatarUrl(userData.avatarUrl || "");
               setMyKey(userData.privateKey || "");
               AsyncStorage.setItem("userName", userData.name || "Người dùng");
             }
@@ -363,7 +365,17 @@ export default function HomeScreen() {
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.header}>
             <View style={styles.userInfo}>
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+              <TouchableOpacity onPress={() => router.push("/profile")}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>
+                      {name ? name.charAt(0).toUpperCase() : "?"}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
               <View>
                 <Text style={styles.greeting}>Chào buổi sáng</Text>
                 <Text style={styles.userName}>{name}</Text>
@@ -468,6 +480,18 @@ export default function HomeScreen() {
                 label="Sức khỏe"
                 onPress={() => router.push("/health")}
               />
+              <FeatureButton
+                icon="shield-checkmark-outline"
+                label="Điểm danh"
+                iconColor="#4CAF50"
+                onPress={() => router.push("/safety-checkin")}
+              />
+              <FeatureButton
+                icon="analytics-outline"
+                label="Nguy cơ"
+                iconColor="#FF9800"
+                onPress={() => router.push("/stroke-risk")}
+              />
               <FeatureButton icon="play-outline" label="Giải trí" />
               <FeatureButton
                 icon="time-outline"
@@ -491,7 +515,6 @@ export default function HomeScreen() {
                 isEmergency={true}
                 onPress={handleEmergencyCall}
               />
-              <FeatureButton icon="add" label="Thêm" iconColor="#666" />
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -536,7 +559,6 @@ export default function HomeScreen() {
         isLoading={isFetchingKey}
       />
     </View>
-    
   );
 }
 
@@ -557,6 +579,14 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     borderWidth: 2,
     borderColor: "white",
+    backgroundColor: "#0055aa",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "white",
   },
   greeting: { color: "#666", fontSize: 14 },
   userName: { color: "#0055aa", fontSize: 18, fontWeight: "bold" },

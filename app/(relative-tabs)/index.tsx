@@ -14,7 +14,7 @@ import {
   serverTimestamp,
   updateDoc,
   where
-} from "firebase/firestore"; // Bỏ onSnapshot ở đây để tránh xung đột
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -64,6 +64,7 @@ export default function RelativeHomeScreen() {
 
   // --- STATES DỮ LIỆU ---
   const [name, setName] = useState("Người thân");
+  const [avatarUrl, setAvatarUrl] = useState("");
 
   // States Thời tiết
   const [temp, setTemp] = useState(0);
@@ -138,10 +139,17 @@ export default function RelativeHomeScreen() {
   // --- 2. HÀM LOAD DỮ LIỆU NỀN (TÊN & THỜI TIẾT) ---
   useEffect(() => {
     const loadBackgroundData = async () => {
-      // A. Lấy Tên (Chỉ lấy tên, không lấy Key)
+      // A. Lấy Tên và Avatar
       try {
-        const savedName = await AsyncStorage.getItem("userName");
-        if (savedName) setName(savedName);
+        const user = auth.currentUser;
+        if (user) {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setName(userData.name || "Người thân");
+            setAvatarUrl(userData.avatarUrl || "");
+          }
+        }
       } catch (e) {}
 
       // B. Lấy Thời tiết (Độc lập hoàn toàn)
@@ -264,7 +272,17 @@ export default function RelativeHomeScreen() {
           {/* HEADER */}
           <View style={styles.header}>
             <View style={styles.userInfo}>
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+              <TouchableOpacity onPress={() => router.push("/profile")}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>
+                      {name ? name.charAt(0).toUpperCase() : "?"}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
               <View>
                 <Text style={styles.greeting}>Chào buổi sáng</Text>
                 <Text style={styles.userName}>{name}</Text>
@@ -402,6 +420,12 @@ export default function RelativeHomeScreen() {
                 subtitle="Thêm nhắc nhở cho người già"
                 onPress={() => router.push("/create-reminder")}
               />
+              <ActionCard
+                icon="alarm-outline"
+                title="Lịch điểm danh"
+                subtitle="Thiết lập giờ nhắc"
+                onPress={() => router.push("/safety-checkin-schedule")}
+              />
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -438,6 +462,14 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     borderWidth: 2,
     borderColor: "white",
+    backgroundColor: "#0055aa",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "white",
   },
   greeting: { color: "#666", fontSize: 14 },
   userName: { color: "#0055aa", fontSize: 18, fontWeight: "bold" },

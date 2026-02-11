@@ -11,7 +11,7 @@ import {
 import { auth, db } from "../config/firebase";
 
 // Key Groq của bạn
-const GROQ_API_KEY = "xxxx"; //Nhớ điền key
+const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || ""; //
 
 export const HealthService = {
   analyzeImage: async (base64Image: string) => {

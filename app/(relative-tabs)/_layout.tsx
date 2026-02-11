@@ -9,7 +9,7 @@ import {
   onSnapshot,
   orderBy,
   query,
-  where
+  where,
 } from "firebase/firestore";
 import React, { useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native"; // Thêm Platform
@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 30,
   },
   activeWrapper: {
     backgroundColor: "#0088cc",

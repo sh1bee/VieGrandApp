@@ -13,7 +13,8 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "VieGrand cần quyền nhận diện giọng nói để hiểu lệnh của bạn.",
         "NSMicrophoneUsageDescription": "VieGrand cần quyền micro để nghe lệnh thoại của bạn."
-      }
+      },
+      "bundleIdentifier": "com.shibe.VieGrandApp"
     },
     "android": {
       "adaptiveIcon": {
@@ -75,9 +76,8 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "ab945103-eb78-4998-aef9-75689718c8e9"
+        "projectId": "844594b3-7be1-45da-a4dc-cf66e3e6b94c"
       }
-    },
-    "owner": "phungminhkhoa"
+    }
   }
 }

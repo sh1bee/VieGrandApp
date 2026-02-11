@@ -78,11 +78,21 @@ export default function ChatDetail() {
       // Cuộn xuống cuối khi có tin mới
       setTimeout(
         () => flatListRef.current?.scrollToEnd({ animated: true }),
-        100,
+        300,
       );
     });
     return () => unsubscribe();
   }, [chatId]);
+
+  // Cuộn xuống cuối khi vừa mở chat
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(
+        () => flatListRef.current?.scrollToEnd({ animated: false }),
+        500,
+      );
+    }
+  }, [messages.length > 0]);
 
   // 2. Hàm gửi tin nhắn văn bản
   const handleSend = async () => {

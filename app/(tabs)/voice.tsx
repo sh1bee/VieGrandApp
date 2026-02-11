@@ -12,10 +12,10 @@ export default function VoiceScreen() {
     <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.1)" }}>
       <VoiceModal
         visible={visible}
-        command="tin nhắn"
+        mode="command"
         onClose={() => {
           setVisible(false);
-          router.back(); // Khi đóng modal thì quay lại trang trước đó
+          router.back();
         }}
       />
     </View>

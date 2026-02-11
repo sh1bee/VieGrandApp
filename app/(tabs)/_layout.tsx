@@ -1,18 +1,19 @@
 // app/(tabs)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
-import * as Notifications from "expo-notifications"; // <--- 1. PHẢI THÊM DÒNG NÀY
+import * as Notifications from "expo-notifications";
 import { Tabs, useRouter } from "expo-router";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   Timestamp,
   collection,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   where,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import VoiceModal from "../../src/components/VoiceModal";
 import { auth, db } from "../../src/config/firebase";
 import { NotificationService } from "../../src/services/NotificationService";
@@ -37,9 +38,10 @@ export default function TabLayout() {
 
     const authUnsub = onAuthStateChanged(auth, (user) => {
       if (user) {
-        NotificationService.initNotifications();
+        if (Platform.OS !== "web") {
+          NotificationService.initNotifications();
+        }
 
-        // Lấy mốc thời gian ngay lúc mở app để không bị bắn thông báo cũ
         const startTime = Timestamp.now();
 
         const q = query(
@@ -50,9 +52,8 @@ export default function TabLayout() {
 
         unsubscribe = onSnapshot(q, (snapshot) => {
           snapshot.docChanges().forEach((change) => {
-            if (change.type === "added") {
+            if (change.type === "added" && Platform.OS !== "web") {
               const data = change.doc.data();
-              // KÍCH HOẠT TING TING VÀ BANNER
               if (!data.isDone) {
                 NotificationService.scheduleReminder(
                   data.title,
@@ -60,22 +61,22 @@ export default function TabLayout() {
                   data.date,
                   data.time,
                   change.doc.id,
-                  data.type, // <--- TRUYỀN THÊM TYPE VÀO ĐÂY
+                  data.type,
                 );
               }
             }
           });
 
-          // Cập nhật Badge (Số đỏ trên icon App ngoài màn hình chính)
-          // Đếm các thông báo isRead === false trong database
-          const unreadQuery = query(
-            collection(db, "users", user.uid, "notifications"),
-            where("isRead", "==", false),
-          );
+          if (Platform.OS !== "web") {
+            const unreadQuery = query(
+              collection(db, "users", user.uid, "notifications"),
+              where("isRead", "==", false),
+            );
 
-          getDocs(unreadQuery).then((snap) => {
-            Notifications.setBadgeCountAsync(snap.size);
-          });
+            getDocs(unreadQuery).then((snap) => {
+              Notifications.setBadgeCountAsync(snap.size);
+            });
+          }
         });
       }
     });
@@ -199,9 +200,6 @@ export default function TabLayout() {
   );
 }
 
-// Bổ sung getDocs vào import firebase/firestore ở trên nếu chưa có
-import { getDocs } from "firebase/firestore";
-
 const styles = StyleSheet.create({
   tabBar: {
     position: "absolute",
@@ -224,7 +222,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     borderRadius: 14,
-    marginTop: 10,
+    marginTop: 30,
   },
   activeTabBox: { backgroundColor: "#0088cc" },
   micButtonContainer: {
@@ -247,5 +245,6 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOpacity: 0.3,
     shadowRadius: 8,
+    marginTop: 5,
   },
 });

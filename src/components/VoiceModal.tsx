@@ -1,22 +1,31 @@
 // src/components/VoiceModal.tsx
 import { Ionicons } from "@expo/vector-icons";
 import * as Speech from "expo-speech";
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from "expo-speech-recognition";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   Easing,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import { VoiceService } from "../services/VoiceService";
+
+// Conditional import for expo-speech-recognition
+let ExpoSpeechRecognitionModule: any = null;
+let useSpeechRecognitionEvent: any = () => {};
+
+try {
+  const speechRecognition = require("expo-speech-recognition");
+  ExpoSpeechRecognitionModule = speechRecognition.ExpoSpeechRecognitionModule;
+  useSpeechRecognitionEvent = speechRecognition.useSpeechRecognitionEvent;
+} catch (e) {
+  console.log("expo-speech-recognition not available, using fallback");
+}
 
 interface VoiceModalProps {
   visible: boolean;
@@ -70,49 +79,53 @@ export default function VoiceModal({
   }, [isListening, isSpeaking]);
 
   // --- 2. SPEECH RECOGNITION EVENTS (REAL-TIME) ---
-  useSpeechRecognitionEvent("start", () => {
-    setIsListening(true);
-  });
+  if (ExpoSpeechRecognitionModule && useSpeechRecognitionEvent) {
+    useSpeechRecognitionEvent("start", () => {
+      setIsListening(true);
+    });
 
-  useSpeechRecognitionEvent("end", () => {
-    setIsListening(false);
-  });
+    useSpeechRecognitionEvent("end", () => {
+      setIsListening(false);
+    });
 
-  useSpeechRecognitionEvent("result", (event) => {
-    const transcript = event.results[0]?.transcript || "";
+    useSpeechRecognitionEvent("result", (event: any) => {
+      const transcript = event.results[0]?.transcript || "";
 
-    if (event.isFinal) {
-      // Kết quả cuối cùng - xử lý ngay
-      setInterimText("");
-      if (transcript.trim()) {
-        processTranscript(transcript.trim());
+      if (event.isFinal) {
+        setInterimText("");
+        if (transcript.trim()) {
+          processTranscript(transcript.trim());
+        } else {
+          handleAIError("Cháu chưa nghe rõ ạ...");
+        }
       } else {
-        handleAIError("Cháu chưa nghe rõ ạ...");
+        setInterimText(transcript);
       }
-    } else {
-      // Kết quả tạm thời - hiển thị real-time cho người dùng thấy
-      setInterimText(transcript);
-    }
-  });
+    });
 
-  useSpeechRecognitionEvent("error", (event) => {
-    console.log("STT error:", event.error, event.message);
-    setIsListening(false);
+    useSpeechRecognitionEvent("error", (event: any) => {
+      console.log("STT error:", event.error, event.message);
+      setIsListening(false);
 
-    if (event.error === "no-speech") {
-      handleAIError("Cháu chưa nghe thấy gì, bác nói lại nhé?");
-    } else if (event.error === "not-allowed") {
-      handleAIError("Bác cần cấp quyền micro cho ứng dụng ạ.");
-    } else {
-      handleAIError("Cháu chưa nghe rõ, bác nói lại nhé?");
-    }
-  });
+      if (event.error === "no-speech") {
+        handleAIError("Cháu chưa nghe thấy gì, bác nói lại nhé?");
+      } else if (event.error === "not-allowed") {
+        handleAIError("Bác cần cấp quyền micro cho ứng dụng ạ.");
+      } else {
+        handleAIError("Cháu chưa nghe rõ, bác nói lại nhé?");
+      }
+    });
+  }
 
   // --- 3. BẮT ĐẦU / DỪNG NGHE ---
   const startListening = useCallback(async () => {
+    if (!ExpoSpeechRecognitionModule) {
+      handleAIError("Tính năng nhận diện giọng nói chưa khả dụng. Vui lòng build app để sử dụng.");
+      return;
+    }
+
     try {
-      const result =
-        await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!result.granted) {
         handleAIError("Bác cần cấp quyền micro cho ứng dụng ạ.");
         return;
@@ -125,7 +138,6 @@ export default function VoiceModal({
         interimResults: true,
         continuous: false,
         addsPunctuation: true,
-        // Tùy chọn: ưu tiên on-device nếu có thể
         requiresOnDeviceRecognition: false,
         androidIntentOptions: {
           EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 3000,
@@ -138,6 +150,7 @@ export default function VoiceModal({
   }, []);
 
   const stopListening = useCallback(() => {
+    if (!ExpoSpeechRecognitionModule) return;
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch (e) {}
@@ -269,11 +282,13 @@ export default function VoiceModal({
                   styles.micCircle,
                   isListening
                     ? { backgroundColor: "#FF3B30" }
-                    : isSpeaking
-                      ? { backgroundColor: "#4CAF50" }
-                      : isFailed
-                        ? { backgroundColor: "#999" }
-                        : null,
+                    : isProcessing
+                      ? { backgroundColor: "#FFA500" }
+                      : isSpeaking
+                        ? { backgroundColor: "#4CAF50" }
+                        : isFailed
+                          ? { backgroundColor: "#999" }
+                          : null,
                 ]}
                 onPress={() => {
                   if (isListening) {
@@ -281,11 +296,12 @@ export default function VoiceModal({
                   } else if (isSpeaking) {
                     Speech.stop();
                     setIsSpeaking(false);
-                  } else {
+                  } else if (!isProcessing) {
                     resetState();
                     startListening();
                   }
                 }}
+                disabled={isProcessing}
               >
                 {isProcessing ? (
                   <ActivityIndicator color="white" size="large" />
